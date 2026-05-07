@@ -52,9 +52,10 @@ flowchart LR
 **Solid green = built.** Dashed grey = the seam exists, the implementation is
 deferred.
 
-> 📐 **Editable version**: [`docs/architecture.tldr`](./docs/architecture.tldr) —
-> drag onto [tldraw.com](https://tldraw.com) (or Cmd-O in a tldraw window).
-> Regenerate after layout changes via `node scripts/generate-tldr.mjs`.
+> 📐 **Editable version**: [`docs/architecture.excalidraw`](./docs/architecture.excalidraw) —
+> drag onto [excalidraw.com](https://excalidraw.com) or open in the
+> VS Code Excalidraw extension. Regenerate after layout changes via
+> `node scripts/generate-excalidraw.mjs`.
 
 ## Layer 1 — Front doors
 
