@@ -1,0 +1,170 @@
+# @metalab/design-sync-pipeline
+
+Local orchestration service that receives `Edit` events from front-door
+tools (the `storybook-design-sync` addon, a future Figma plugin) and
+routes them to write-capable engines.
+
+This is the **pipeline** layer in the three-layer model:
+
+```
+Front doors  →  Pipeline  →  Engines
+(addon,           (this        (CSS token swap, Baluarte
+ plugin)          repo)         for codegen, Figma REST/MCP)
+```
+
+The pipeline is intentionally small. It owns:
+
+- The HTTP surface that front-doors POST to
+- The `Edit` / `EditResult` contract
+- An engine registry + router
+- The audit/confirmation layer (read-only mode by default for new installs)
+
+It does **not** own:
+
+- Drift detection — that's the addon
+- Code generation — that's an engine (e.g. [Baluarte](https://github.com/romedinaML/baluarte))
+- Figma writes — separate engines, deferred past v0
+- Auth, persistence, multi-user — all later
+
+## Install
+
+```sh
+npm i -D @metalab/design-sync-pipeline
+```
+
+Or pin a tag from GitHub:
+
+```sh
+npm i -D mylesmetalab/design-sync-pipeline#v0.0.1
+```
+
+## Configure
+
+`design-sync-pipeline.config.json` at the consuming project's root:
+
+```json
+{
+  "port": 7099,
+  "cors": "*",
+  "writeEnabled": true,
+  "codeTargets": [
+    { "path": "src/style.css", "scopeSelector": ".icon-button" },
+    { "path": "src/style.css", "scopeSelector": ".file-item" }
+  ]
+}
+```
+
+`codeTargets` declares which files (and optionally which CSS rules) the
+deterministic CSS token-swap engine is allowed to touch. Edits referencing
+selectors outside this list are rejected with a clear message.
+
+`writeEnabled: false` puts the pipeline in dry-run mode — every edit
+returns a diff but writes nothing. Recommended for first-time setup.
+
+## Run
+
+```sh
+npx design-sync-pipeline serve
+# design-sync-pipeline listening on http://127.0.0.1:7099
+```
+
+Or via the script alias:
+
+```sh
+npm run serve
+```
+
+Bind is hard-coded to `127.0.0.1`. The pipeline never accepts connections
+from the LAN.
+
+## HTTP surface
+
+| Method | Path | Body | Returns |
+|--------|------|------|---------|
+| `GET`  | `/health`  | — | `{ ok: true, writeEnabled }` |
+| `GET`  | `/engines` | — | List of registered engines |
+| `POST` | `/edits`   | `Edit` | `EditResult` |
+
+### Edit shape
+
+```ts
+{
+  id: string;                            // uuid for tracking/idempotency
+  kind: "token-binding" | "token-value" | "copy" | "props";
+  scope: "code" | "figma";
+  target: {
+    storyId?: string;
+    selector?: string;                   // CSS selector for code scope
+    property: string;
+    nodeId?: string;
+    fileKey?: string;
+    path?: string;
+  };
+  oldValue: string;                      // safety check
+  newValue: string;
+  modes?: { light?: string; dark?: string };
+  source: string;                        // "storybook-design-sync", etc.
+  timestamp: string;
+  dryRun?: boolean;                      // forced true if writeEnabled=false
+}
+```
+
+### EditResult
+
+```ts
+{
+  id: string;
+  status: "applied" | "rejected" | "needs_review" | "error" | "no_op";
+  engine?: string;
+  message?: string;
+  diff?: string;                         // human-readable summary
+}
+```
+
+## v0 engines
+
+| Name | Handles | Notes |
+|------|---------|-------|
+| `code-css-token-swap` | `token-binding` × `code` | Replaces `var(--<old>)` with `var(--<new>)` in a configured file. Deterministic, idempotent. Refuses if the old token isn't found. |
+
+## Adding an engine
+
+```ts
+import type { PipelineEngine } from "@metalab/design-sync-pipeline";
+
+export const createMyEngine = (): PipelineEngine => ({
+  info: {
+    name: "my-engine",
+    description: "...",
+    handles: [{ kind: "token-binding", scope: "code" }],
+    idempotent: true,
+    writeCapable: true,
+  },
+  canHandle(edit) {
+    return /* ... */;
+  },
+  async apply(edit) {
+    // ...do the thing...
+    return { id: edit.id, status: "applied", engine: "my-engine" };
+  },
+});
+```
+
+For v0 engines are hard-coded into `src/engines/index.ts`. A pluggable
+registry (`pipeline.engines.ts` in the consuming repo, or
+[Baluarte](https://github.com/romedinaML/baluarte) as a transitive dep)
+comes later.
+
+## Out of scope for v0
+
+- Figma writes (any kind)
+- LLM/MCP-routed stochastic edits
+- Multi-edit transactions
+- Persistence, history, audit log
+- Network exposure (LAN/internet)
+- Auth
+- Replacing or hooking into Syncything (intentionally independent)
+
+## License
+
+MIT

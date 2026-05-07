@@ -1,0 +1,119 @@
+import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { applyEdit, buildEngines } from "./engines/index.js";
+import type { PipelineConfig } from "./config.js";
+import type { Edit } from "./types.js";
+
+export interface ServerHandle {
+  close: () => Promise<void>;
+  port: number;
+}
+
+/**
+ * Start the pipeline HTTP server. Returns a handle with a close() method.
+ *
+ * Routes:
+ *   GET  /health    → liveness check
+ *   GET  /engines   → describe registered engines
+ *   POST /edits     → apply a single Edit; respond with EditResult
+ *
+ * No auth, no TLS — strictly localhost-dev. Bind explicitly to 127.0.0.1
+ * so we don't accidentally expose to the LAN.
+ */
+export async function startServer(
+  cwd: string,
+  config: PipelineConfig,
+): Promise<ServerHandle> {
+  const engines = buildEngines(cwd, config);
+
+  const server = createServer(async (req, res) => {
+    setCors(res, config.cors);
+    if (req.method === "OPTIONS") {
+      res.statusCode = 204;
+      res.end();
+      return;
+    }
+
+    try {
+      if (req.method === "GET" && req.url === "/health") {
+        sendJson(res, 200, { ok: true, writeEnabled: config.writeEnabled });
+        return;
+      }
+
+      if (req.method === "GET" && req.url === "/engines") {
+        sendJson(res, 200, {
+          engines: engines.map((e) => e.info),
+          writeEnabled: config.writeEnabled,
+        });
+        return;
+      }
+
+      if (req.method === "POST" && req.url === "/edits") {
+        const body = await readBody(req);
+        const edit = parseEdit(body);
+        if (!edit) {
+          sendJson(res, 400, { error: "Invalid Edit payload." });
+          return;
+        }
+        const result = await applyEdit(engines, edit, config.writeEnabled);
+        sendJson(res, 200, result);
+        return;
+      }
+
+      sendJson(res, 404, { error: `Not found: ${req.method} ${req.url}` });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      sendJson(res, 500, { error: message });
+    }
+  });
+
+  await new Promise<void>((resolve) => {
+    server.listen(config.port, "127.0.0.1", resolve);
+  });
+
+  return {
+    port: config.port,
+    close: () =>
+      new Promise<void>((resolve, reject) => {
+        server.close((err) => (err ? reject(err) : resolve()));
+      }),
+  };
+}
+
+function setCors(res: ServerResponse, origin: string): void {
+  res.setHeader("Access-Control-Allow-Origin", origin);
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+}
+
+function sendJson(res: ServerResponse, status: number, body: unknown): void {
+  res.statusCode = status;
+  res.setHeader("Content-Type", "application/json");
+  res.end(JSON.stringify(body, null, 2));
+}
+
+function readBody(req: IncomingMessage): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    req.on("data", (chunk) => chunks.push(chunk));
+    req.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
+    req.on("error", reject);
+  });
+}
+
+/**
+ * Validate an incoming Edit. Permissive — only the fields the pipeline
+ * actually depends on are required. Engines do their own validation.
+ */
+function parseEdit(raw: string): Edit | null {
+  try {
+    const parsed = JSON.parse(raw) as Partial<Edit>;
+    if (!parsed.id || typeof parsed.id !== "string") return null;
+    if (!parsed.kind || !parsed.scope) return null;
+    if (typeof parsed.oldValue !== "string" || typeof parsed.newValue !== "string") return null;
+    if (!parsed.target || typeof parsed.target !== "object") return null;
+    if (!parsed.source || !parsed.timestamp) return null;
+    return parsed as Edit;
+  } catch {
+    return null;
+  }
+}
