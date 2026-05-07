@@ -1,7 +1,8 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { applyEdit, buildEngines } from "./engines/index.js";
 import type { PipelineConfig } from "./config.js";
-import type { Edit } from "./types.js";
+import type { Edit, EditResult } from "./types.js";
+import { EditQueue } from "./queue.js";
 
 export interface ServerHandle {
   close: () => Promise<void>;
@@ -24,6 +25,7 @@ export async function startServer(
   config: PipelineConfig,
 ): Promise<ServerHandle> {
   const engines = buildEngines(cwd, config);
+  const queue = new EditQueue();
 
   const server = createServer(async (req, res) => {
     setCors(res, config.cors);
@@ -54,8 +56,51 @@ export async function startServer(
           sendJson(res, 400, { error: "Invalid Edit payload." });
           return;
         }
-        const result = await applyEdit(engines, edit, config.writeEnabled);
+        // Code-scope: handle synchronously via the engine registry.
+        if (edit.scope === "code") {
+          const result = await applyEdit(engines, edit, config.writeEnabled);
+          sendJson(res, 200, result);
+          return;
+        }
+        // Figma-scope: enqueue and long-poll for the worker's result.
+        queue.enqueue(edit);
+        const result = await queue.awaitResult(edit.id);
         sendJson(res, 200, result);
+        return;
+      }
+
+      // Figma worker (plugin) endpoints.
+      if (req.method === "GET" && req.url === "/edits/pending") {
+        sendJson(res, 200, { edits: queue.claim() });
+        return;
+      }
+
+      const resultMatch = req.url?.match(/^\/edits\/([^/]+)\/result$/);
+      if (req.method === "POST" && resultMatch) {
+        const id = decodeURIComponent(resultMatch[1]!);
+        const body = await readBody(req);
+        const result = parseEditResult(body);
+        if (!result) {
+          sendJson(res, 400, { error: "Invalid EditResult payload." });
+          return;
+        }
+        if (!queue.reportResult(id, { ...result, id })) {
+          sendJson(res, 404, { error: `No edit with id ${id}` });
+          return;
+        }
+        sendJson(res, 200, { ok: true });
+        return;
+      }
+
+      const statusMatch = req.url?.match(/^\/edits\/([^/]+)$/);
+      if (req.method === "GET" && statusMatch) {
+        const id = decodeURIComponent(statusMatch[1]!);
+        const status = queue.getStatus(id);
+        if (!status) {
+          sendJson(res, 404, { error: `No edit with id ${id}` });
+          return;
+        }
+        sendJson(res, 200, status);
         return;
       }
 
@@ -113,6 +158,16 @@ function parseEdit(raw: string): Edit | null {
     if (!parsed.target || typeof parsed.target !== "object") return null;
     if (!parsed.source || !parsed.timestamp) return null;
     return parsed as Edit;
+  } catch {
+    return null;
+  }
+}
+
+function parseEditResult(raw: string): EditResult | null {
+  try {
+    const parsed = JSON.parse(raw) as Partial<EditResult>;
+    if (typeof parsed.status !== "string") return null;
+    return parsed as EditResult;
   } catch {
     return null;
   }
