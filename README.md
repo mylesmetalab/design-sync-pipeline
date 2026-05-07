@@ -1,8 +1,14 @@
 # @metalab/design-sync-pipeline
 
+> **Part of the design-sync system** —
+> [`addon`](https://github.com/mylesmetalab/storybook-design-sync) ·
+> [`pipeline`](https://github.com/mylesmetalab/design-sync-pipeline) ·
+> [`figma-plugin`](https://github.com/mylesmetalab/design-sync-figma-plugin) ·
+> [architecture](./ARCHITECTURE.md)
+
 Local orchestration service that receives `Edit` events from front-door
-tools (the `storybook-design-sync` addon, a future Figma plugin) and
-routes them to write-capable engines.
+tools (the `storybook-design-sync` addon, the `design-sync-figma-plugin`)
+and routes them to write-capable engines.
 
 This is the **pipeline** layer in the three-layer model:
 
