@@ -57,6 +57,12 @@ export interface Edit {
    * writing. Required-on for first-contact integration tests.
    */
   dryRun?: boolean;
+  /**
+   * Inverse of dryRun for engines that default to dry-run (figma-rest-write,
+   * figma-plugin). Real writes only happen when `confirm: true`. Producers
+   * opt in explicitly per-edit; not a global flag.
+   */
+  confirm?: boolean;
 }
 
 export type EditResultStatus =

@@ -1,6 +1,7 @@
 import type { PipelineEngine, Edit, EditResult } from "../types.js";
 import type { PipelineConfig } from "../config.js";
 import { createCssTokenSwapEngine } from "./code-css-token-swap.js";
+import { createFigmaRestWriteEngine } from "./figma-rest-write.js";
 
 /**
  * Build the engine roster from a config + cwd. v0 hard-codes the registry;
@@ -8,7 +9,10 @@ import { createCssTokenSwapEngine } from "./code-css-token-swap.js";
  * Baluarte) at boot via a `pipeline.engines.ts` file or similar.
  */
 export function buildEngines(cwd: string, config: PipelineConfig): PipelineEngine[] {
-  return [createCssTokenSwapEngine(cwd, config.codeTargets)];
+  return [
+    createCssTokenSwapEngine(cwd, config.codeTargets),
+    createFigmaRestWriteEngine({ pat: process.env.FIGMA_PAT }),
+  ];
 }
 
 /**
