@@ -133,6 +133,42 @@ from the LAN.
 |------|---------|-------|
 | `code-css-token-swap` | `token-binding` × `code` | Replaces `var(--<old>)` with `var(--<new>)` in a configured file. Deterministic, idempotent. Refuses if the old token isn't found. |
 
+## CLI subcommands
+
+In addition to `serve`, the CLI exposes two utility commands:
+
+```sh
+# Walk Storybook + Figma to seed .design-sync/registry.json
+design-sync-pipeline seed
+
+# Pull Figma Variables → DTCG tokens.json
+design-sync-pipeline pull-tokens \
+  --out src/tokens/tokens.json \
+  --known-phantoms typography/ui/14
+```
+
+`pull-tokens` reads `/v1/files/:key/variables/local`, walks the named
+collection, and emits a DTCG-shaped `tokens.json`. Type mapping:
+
+| Figma type | Group | DTCG `$type` | Value shape |
+|---|---|---|---|
+| `COLOR` | any | `color` | hex (alpha appended if `< 1`, e.g. `#ffffffb8`) |
+| `FLOAT` | `z/*` | `number` | unitless string (`"4000"`) |
+| `FLOAT` | other | `dimension` | px-suffixed string (`"16px"`) |
+| `STRING` | any | `string` | verbatim |
+| `BOOLEAN` | any | `boolean` | `"true"` / `"false"` |
+
+Mode handling: the collection's default mode populates `$value`; other
+modes go in `$modes` only when their value differs from the default
+(no-op overrides are suppressed). Variable scopes are preserved under
+`$extensions.figma.scopes`. `VARIABLE_ALIAS` values resolve to their
+target's literal in the same mode.
+
+`fileKey` and `pullTokens.{collection,knownPhantoms}` can be set in
+`design-sync-pipeline.config.json` to avoid passing them on every run.
+Variables whose names lack a `/` separator (e.g. designer scratch
+variables) are skipped with a warning.
+
 ## Adding an engine
 
 ```ts
