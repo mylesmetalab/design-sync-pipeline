@@ -35,6 +35,11 @@ export interface PipelineConfig {
    * config sections, not changing this one.
    */
   codeTargets: CodeTarget[];
+  /**
+   * Default Figma file key. Optional for `serve`; used by `seed` when no
+   * --file-key flag is passed.
+   */
+  fileKey?: string;
 }
 
 const DEFAULTS: PipelineConfig = {
@@ -67,12 +72,14 @@ function normalize(raw: unknown): PipelineConfig {
     throw new Error("[design-sync-pipeline] Config must be an object.");
   }
   const r = raw as Partial<PipelineConfig>;
-  return {
+  const out: PipelineConfig = {
     port: r.port ?? DEFAULTS.port,
     cors: r.cors ?? DEFAULTS.cors,
     writeEnabled: r.writeEnabled ?? DEFAULTS.writeEnabled,
     codeTargets: r.codeTargets ?? DEFAULTS.codeTargets,
   };
+  if (r.fileKey) out.fileKey = r.fileKey;
+  return out;
 }
 
 function isNotFound(err: unknown): boolean {
