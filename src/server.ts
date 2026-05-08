@@ -56,16 +56,23 @@ export async function startServer(
           sendJson(res, 400, { error: "Invalid Edit payload." });
           return;
         }
-        // Code-scope: handle synchronously via the engine registry.
-        if (edit.scope === "code") {
-          const result = await applyEdit(engines, edit, config.writeEnabled);
+        // Try the engine registry first — works for code-scope and any
+        // figma-scope edit a registered engine claims (e.g. figma-rest-write
+        // for token-value edits). If no engine handles it, fall through to
+        // the queue (which the figma-plugin worker drains for token-binding
+        // writes that require Plugin API access).
+        const engineResult = await applyEdit(engines, edit, config.writeEnabled);
+        if (engineResult.status !== "rejected" || engineResult.message?.startsWith("No engine handles") !== true) {
+          sendJson(res, 200, engineResult);
+          return;
+        }
+        if (edit.scope === "figma") {
+          queue.enqueue(edit);
+          const result = await queue.awaitResult(edit.id);
           sendJson(res, 200, result);
           return;
         }
-        // Figma-scope: enqueue and long-poll for the worker's result.
-        queue.enqueue(edit);
-        const result = await queue.awaitResult(edit.id);
-        sendJson(res, 200, result);
+        sendJson(res, 200, engineResult);
         return;
       }
 
