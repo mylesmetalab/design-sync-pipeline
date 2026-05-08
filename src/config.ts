@@ -36,10 +36,22 @@ export interface PipelineConfig {
    */
   codeTargets: CodeTarget[];
   /**
-   * Default Figma file key. Optional for `serve`; used by `seed` when no
-   * --file-key flag is passed.
+   * Default Figma file key. Optional for `serve`; used by `seed` and
+   * `pull-tokens` when no --file-key flag is passed.
    */
   fileKey?: string;
+  /**
+   * Defaults for the `pull-tokens` command. Overridden by CLI flags.
+   */
+  pullTokens?: {
+    /** Variable collection name. Defaults to first collection in the file. */
+    collection?: string;
+    /**
+     * Variable names that exist in the consuming project's tokens.json but
+     * not in Figma (or vice versa). Skipped from pull output.
+     */
+    knownPhantoms?: string[];
+  };
 }
 
 const DEFAULTS: PipelineConfig = {
@@ -79,6 +91,7 @@ function normalize(raw: unknown): PipelineConfig {
     codeTargets: r.codeTargets ?? DEFAULTS.codeTargets,
   };
   if (r.fileKey) out.fileKey = r.fileKey;
+  if (r.pullTokens) out.pullTokens = r.pullTokens;
   return out;
 }
 
