@@ -1,6 +1,6 @@
 import type { PipelineEngine, Edit, EditResult } from "../types.js";
 import type { PipelineConfig } from "../config.js";
-import { createCssTokenSwapEngine } from "./code-css-token-swap.js";
+import { createCssPostcssEngine } from "./code-css-postcss.js";
 import { createFigmaRestWriteEngine } from "./figma-rest-write.js";
 
 /**
@@ -10,7 +10,7 @@ import { createFigmaRestWriteEngine } from "./figma-rest-write.js";
  */
 export function buildEngines(cwd: string, config: PipelineConfig): PipelineEngine[] {
   return [
-    createCssTokenSwapEngine(cwd, config.codeTargets),
+    createCssPostcssEngine(cwd, config.codeTargets),
     createFigmaRestWriteEngine({ pat: process.env.FIGMA_PAT }),
   ];
 }
