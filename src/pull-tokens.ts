@@ -97,6 +97,11 @@ type DTCGTree = Record<string, Record<string, DTCGToken>>;
 
 const FIGMA_API = "https://api.figma.com/v1";
 
+// Canonical ordering for top-level groups. Matches the convention in
+// Downmark's existing tokens.json and keeps pull diffs stable. Groups not
+// listed here fall to the end alphabetically.
+const GROUP_ORDER = ["color", "space", "radius", "shadow", "transition", "z", "typography"];
+
 export interface PullTokensFlags {
   fileKey?: string;
   outPath?: string;
@@ -214,9 +219,11 @@ export async function pullTokens(opts: PullTokensOptions): Promise<PullTokensRes
     included++;
   }
 
+  const ordered = sortTree(tree);
+
   if (!opts.dryRun) {
     await mkdir(dirname(opts.outPath), { recursive: true });
-    await writeFile(opts.outPath, JSON.stringify(tree, null, 2) + "\n", "utf8");
+    await writeFile(opts.outPath, JSON.stringify(ordered, null, 2) + "\n", "utf8");
   }
 
   return {
@@ -227,6 +234,29 @@ export async function pullTokens(opts: PullTokensOptions): Promise<PullTokensRes
     skippedPhantoms,
     dryRun: opts.dryRun,
   };
+}
+
+function sortTree(tree: DTCGTree): DTCGTree {
+  // Emit groups in canonical order (with extras alphabetical at the end);
+  // emit keys within each group alphabetically. Stable across pulls so a
+  // git diff only ever shows real token changes, not Figma response shuffle.
+  const groupKeys = Object.keys(tree).sort((a, b) => {
+    const ai = GROUP_ORDER.indexOf(a);
+    const bi = GROUP_ORDER.indexOf(b);
+    if (ai !== -1 && bi !== -1) return ai - bi;
+    if (ai !== -1) return -1;
+    if (bi !== -1) return 1;
+    return a.localeCompare(b);
+  });
+  const out: DTCGTree = {};
+  for (const g of groupKeys) {
+    const inner: Record<string, DTCGToken> = {};
+    for (const k of Object.keys(tree[g]!).sort()) {
+      inner[k] = tree[g]![k]!;
+    }
+    out[g] = inner;
+  }
+  return out;
 }
 
 function mapType(variable: FigmaVariable, group: string): DTCGToken["$type"] {
