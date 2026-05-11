@@ -61,7 +61,7 @@ npm i -D mylesmetalab/design-sync-pipeline#v0.0.1
 ```
 
 `codeTargets` declares which files (and optionally which CSS rules) the
-deterministic CSS token-swap engine is allowed to touch. Edits referencing
+`code-css-postcss` engine is allowed to touch. Edits referencing
 selectors outside this list are rejected with a clear message.
 
 `writeEnabled: false` puts the pipeline in dry-run mode — every edit
@@ -131,7 +131,7 @@ from the LAN.
 
 | Name | Handles | Notes |
 |------|---------|-------|
-| `code-css-token-swap` | `token-binding` × `code` | Replaces `var(--<old>)` with `var(--<new>)` in a configured file. Deterministic, idempotent. Refuses if the old token isn't found. |
+| `code-css-postcss` | `token-binding` × `code`, `token-value` × `code` | PostCSS AST engine. Swaps `var(--<old>)` for `var(--<new>)` or promotes a raw CSS literal to `var(--<token>)`, scoped to a specific rule + property. Walks the cascade chain (`.tab.active` → `.tab`) for components not yet per-variant-explicit. Stale-check is strict: if the rule's current value disagrees with `oldValue`, the engine refuses with an "expected X, found Y" message rather than silently rewriting. Replaced the regex-based `code-css-token-swap` engine in pipeline v0.0.8. |
 
 ## CLI subcommands
 
