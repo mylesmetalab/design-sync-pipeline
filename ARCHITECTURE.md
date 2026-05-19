@@ -20,7 +20,7 @@ flowchart LR
   pipeline["⚙️ design-sync-pipeline<br/>local Node service"]
 
   subgraph codeengines ["Code engines"]
-    cssEng["CSS token swap"]
+    cssEng["code-css-postcss<br/>(token swap, AST)"]
     bal["Baluarte<br/>(codegen)"]
   end
 
@@ -45,8 +45,8 @@ flowchart LR
   classDef built fill:#d1f4e0,stroke:#16a34a,color:#000;
   classDef future fill:#f3f4f6,stroke:#9ca3af,stroke-dasharray:5 5,color:#000;
 
-  class addon,plugin,pipeline,cssEng,pluginEng built
-  class bal,restEng,inspector future
+  class addon,plugin,pipeline,cssEng,pluginEng,restEng built
+  class bal,inspector future
 ```
 
 **Solid green = built.** Dashed grey = the seam exists, the implementation is
@@ -91,10 +91,10 @@ combinations it handles; the router picks the first match.
 
 | Engine | Built? | Scope × Kind | Notes |
 |--------|--------|--------------|-------|
-| `code-css-token-swap` | ✅ | `code × token-binding` | Regex-based `var(--old)` → `var(--new)` in configured CSS files. Deterministic, idempotent. |
-| Plugin API (via plugin) | ✅ | `figma × token-binding` | The Figma plugin acts as both a front door and an engine. Re-binds variants' boundVariables. |
-| `figma-rest-write` | future | `figma × token-value` | Writes variable *values* (e.g. change `radius/lg` from 6 → 8). Doesn't touch bindings. |
-| Baluarte | future | `code × *` | AST-aware code edits. Sits next to the CSS engine, picks up edits the regex swap can't handle. |
+| `code-css-postcss` | ✅ | `code × token-binding`, `code × token-value` | PostCSS-AST rewrite of `var(--old)` → `var(--new)` (binding) or literal → `var(--token)` (value) in configured CSS files. Replaces the regex `code-css-token-swap` engine that shipped in v0.0.1; PostCSS engine is v0.0.8+. Deterministic, idempotent, stale-checked. |
+| Plugin API (via plugin) | ✅ | `figma × token-binding` | The Figma plugin acts as both a front door and an engine. Re-binds variants' `boundVariables` for padding, border-radius, gap, border-width, fill/stroke color, box-shadow, and TEXT-descendant typography. |
+| `figma-rest-write` | ✅ | `figma × token-value` | Writes variable *values* (e.g. change `radius/lg` from 6 → 8) via Figma's REST Variables API. Doesn't touch bindings. Defaults to dry-run; real writes require `edit.confirm: true`. |
+| Baluarte | future | `code × *` | AST-aware code edits. Sits next to the CSS engine, picks up edits the PostCSS engine can't handle (CSS-in-JS, Tailwind, inline React styles). |
 
 ## How Baluarte fits
 
@@ -148,7 +148,7 @@ synchronous: pipeline → CSS engine → file write → result back.
 See [`storybook-design-sync/docs/roadmap.md`](https://github.com/mylesmetalab/storybook-design-sync/blob/main/docs/roadmap.md)
 for the prioritized list of post-PoC work, including:
 
-- Apply for dual-mode rows (currently single-mode only)
-- `figma-rest-write` engine for variable-value drift
-- Hash-based skip path for unchanged checks
-- CI runner that fails PRs on drift
+- Apply for dual-mode rows where the modes agree (shipped in addon v0.0.20)
+- Hash-based skip path for unchanged checks (the addon's persistent cache covers this)
+- CI runner that fails PRs on drift (CLI `design-sync audit` shipped in addon v0.0.23)
+- Baluarte engine for AST-aware code edits (still future)
