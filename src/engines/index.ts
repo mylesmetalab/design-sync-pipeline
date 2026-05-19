@@ -1,15 +1,25 @@
 import type { PipelineEngine, Edit, EditResult } from "../types.js";
 import type { PipelineConfig } from "../config.js";
 import { createCssPostcssEngine } from "./code-css-postcss.js";
+import { createTsxInlineEngine } from "./code-tsx-inline.js";
 import { createFigmaRestWriteEngine } from "./figma-rest-write.js";
 
 /**
  * Build the engine roster from a config + cwd. v0 hard-codes the registry;
- * future versions will let consumers register additional engines (e.g.
- * Baluarte) at boot via a `pipeline.engines.ts` file or similar.
+ * future versions will let consumers register additional engines at boot
+ * via a `pipeline.engines.ts` file or similar.
+ *
+ * Engine ordering: `pickEngine` picks the first engine whose `handles`
+ * matrix matches AND whose `canHandle` returns true. The TSX and CSS
+ * engines both declare `code × token-binding` / `code × token-value`;
+ * each one's `canHandle` is what disambiguates — both filter
+ * `codeTargets` by file extension at construction time and return true
+ * only if at least one target matches. No extension overlap, so order
+ * is a non-issue. TSX listed first as a stylistic convention.
  */
 export function buildEngines(cwd: string, config: PipelineConfig): PipelineEngine[] {
   return [
+    createTsxInlineEngine(cwd, config.codeTargets),
     createCssPostcssEngine(cwd, config.codeTargets),
     createFigmaRestWriteEngine({ pat: process.env.FIGMA_PAT }),
   ];
