@@ -20,7 +20,8 @@ flowchart LR
   pipeline["⚙️ design-sync-pipeline<br/>local Node service"]
 
   subgraph codeengines ["Code engines"]
-    cssEng["code-css-postcss<br/>(token swap, AST)"]
+    cssEng["code-css-postcss<br/>(.css, PostCSS AST)"]
+    tsxEng["code-tsx-inline<br/>(.tsx inline styles, ts-morph)"]
     bal["Baluarte<br/>(codegen)"]
   end
 
@@ -37,6 +38,7 @@ flowchart LR
   plugin <-->|"poll queue,<br/>report results"| pipeline
 
   pipeline --> cssEng --> codebase
+  pipeline --> tsxEng --> codebase
   pipeline -.-> bal -.-> codebase
   pipeline -.-> restEng -.-> fileDesign
   pipeline --> pluginEng
@@ -45,7 +47,7 @@ flowchart LR
   classDef built fill:#d1f4e0,stroke:#16a34a,color:#000;
   classDef future fill:#f3f4f6,stroke:#9ca3af,stroke-dasharray:5 5,color:#000;
 
-  class addon,plugin,pipeline,cssEng,pluginEng,restEng built
+  class addon,plugin,pipeline,cssEng,tsxEng,pluginEng,restEng built
   class bal,inspector future
 ```
 
@@ -91,7 +93,8 @@ combinations it handles; the router picks the first match.
 
 | Engine | Built? | Scope × Kind | Notes |
 |--------|--------|--------------|-------|
-| `code-css-postcss` | ✅ | `code × token-binding`, `code × token-value` | PostCSS-AST rewrite of `var(--old)` → `var(--new)` (binding) or literal → `var(--token)` (value) in configured CSS files. Replaces the regex `code-css-token-swap` engine that shipped in v0.0.1; PostCSS engine is v0.0.8+. Deterministic, idempotent, stale-checked. |
+| `code-css-postcss` | ✅ | `code × token-binding`, `code × token-value` | PostCSS-AST rewrite of `var(--old)` → `var(--new)` (binding) or literal → `var(--token)` (value) in configured `.css` files. Replaces the regex `code-css-token-swap` engine that shipped in v0.0.1; PostCSS engine is v0.0.8+. Deterministic, idempotent, stale-checked. |
+| `code-tsx-inline` | ✅ | `code × token-binding`, `code × token-value` | ts-morph AST rewrite of `var(--old)` → `var(--new)` (binding) or literal → `var(--token)` (value) inside JSX `style={{ … }}` object expressions in `.tsx`/`.ts`/`.jsx`/`.js` files. Mirrors the CSS engine for codebases that style inline rather than via `.css` files. Same idempotency + stale-check semantics. Follows identifier references to local const declarations (handles `style={stylesConst}` patterns). |
 | Plugin API (via plugin) | ✅ | `figma × token-binding` | The Figma plugin acts as both a front door and an engine. Re-binds variants' `boundVariables` for padding, border-radius, gap, border-width, fill/stroke color, box-shadow, and TEXT-descendant typography. |
 | `figma-rest-write` | ✅ | `figma × token-value` | Writes variable *values* (e.g. change `radius/lg` from 6 → 8) via Figma's REST Variables API. Doesn't touch bindings. Defaults to dry-run; real writes require `edit.confirm: true`. |
 | Baluarte | future | `code × *` | AST-aware code edits. Sits next to the CSS engine, picks up edits the PostCSS engine can't handle (CSS-in-JS, Tailwind, inline React styles). |
