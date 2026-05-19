@@ -57,7 +57,11 @@ export interface PipelineConfig {
 const DEFAULTS: PipelineConfig = {
   port: 7099,
   cors: "*",
-  writeEnabled: true,
+  // Read-only by default — matches the stated principle in the README and
+  // ARCHITECTURE.md. First-touch installs get a safe pipeline that returns
+  // diffs without writing; producers must opt in via
+  // `writeEnabled: true` in their config (or pass `--write` at the CLI).
+  writeEnabled: false,
   codeTargets: [],
 };
 
