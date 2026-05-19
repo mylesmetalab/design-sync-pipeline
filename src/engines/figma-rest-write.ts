@@ -148,7 +148,13 @@ export function createFigmaRestWriteEngine(ctx: FigmaRestWriteContext): Pipeline
       const before = variable.valuesByMode[targetMode.modeId];
       const diff = `${variable.name} (mode: ${targetMode.name})\n- ${JSON.stringify(before)}\n+ ${JSON.stringify(parsedValue)}`;
 
-      if (!edit.confirm) {
+      // Two gates close on real writes:
+      //   1) `edit.dryRun: true` — producer explicitly requested a preview.
+      //      Honored even when `confirm: true` is also set (producer wins
+      //      both directions; dry-run is the safer outcome on conflict).
+      //   2) `!edit.confirm` — producer hasn't opted in. Engines that write
+      //      Figma default to dry-run; real writes are always explicit.
+      if (edit.dryRun || !edit.confirm) {
         return {
           id: edit.id,
           status: "no_op",
