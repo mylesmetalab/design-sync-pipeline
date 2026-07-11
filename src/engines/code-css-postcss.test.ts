@@ -2,7 +2,8 @@ import { describe, expect, it, beforeEach, afterEach } from "vitest";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createCssPostcssEngine, deriveSelectorChain, isSingleValue } from "./code-css-postcss.js";
+import { createCssPostcssEngine } from "./code-css-postcss.js";
+import { deriveSelectorChain, isSingleValue } from "@metalab/design-sync-core";
 import type { Edit } from "../types.js";
 
 /**

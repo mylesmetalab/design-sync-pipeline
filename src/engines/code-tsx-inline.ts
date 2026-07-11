@@ -1,5 +1,6 @@
 import { resolve } from "node:path";
 import { Project, SyntaxKind, type Node, type SourceFile } from "ts-morph";
+import { tokenNameToCssVar } from "@metalab/design-sync-core";
 import type { Edit, EditResult, PipelineEngine } from "../types.js";
 import type { CodeTarget } from "../config.js";
 
@@ -44,10 +45,6 @@ const TSX_EXTS = [".tsx", ".jsx", ".ts", ".js", ".mts", ".cts", ".mjs", ".cjs"];
 
 function isTsxTarget(t: CodeTarget): boolean {
   return TSX_EXTS.some((ext) => t.path.endsWith(ext));
-}
-
-function tokenNameToCssVar(token: string): string {
-  return "--" + token.replace(/\//g, "-").toLowerCase();
 }
 
 function kebabToCamel(prop: string): string {

@@ -1,6 +1,11 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import postcss, { type Root, type Rule, type Declaration } from "postcss";
+import {
+  deriveSelectorChain,
+  isSingleValue,
+  tokenNameToCssVar,
+} from "@metalab/design-sync-core";
 import type { Edit, EditResult, PipelineEngine } from "../types.js";
 import type { CodeTarget } from "../config.js";
 
@@ -174,45 +179,9 @@ export function createCssPostcssEngine(
 
 // ─── selector / rule helpers ────────────────────────────────────────────
 
-/**
- * CSS-cascade parent chain. Same logic as the addon's `lookupBindings`:
- *  - `.icon-button--accent` → `.icon-button`         (strip BEM `--mod`)
- *  - `.tab.active`          → `.tab`                 (strip trailing class)
- *  - `.foo`                 → no further fallback
- *
- * Bounded loop guards against pathological inputs (we cap at 4 levels —
- * deeper than any real BEM chain).
- *
- * Duplicated from the addon's `src/scan-css.ts`; P1.3 will consolidate
- * into a shared package.
- */
-export function deriveSelectorChain(selector: string): string[] {
-  const chain: string[] = [selector];
-  let current = selector;
-  for (let i = 0; i < 4; i++) {
-    const next = stripOneLayer(current);
-    if (!next || next === current) break;
-    chain.push(next);
-    current = next;
-  }
-  return chain;
-}
-
-function stripOneLayer(selector: string): string | null {
-  // Trailing chained class: `.foo.bar` → `.foo` (only when the head also
-  // contains a `.`, so we don't try to strip the only class on the selector).
-  const chained = selector.match(/^(.+)(\.[A-Za-z_][\w-]*)$/);
-  const chainedHead = chained?.[1];
-  const chainedTail = chained?.[2];
-  if (chainedHead && chainedTail && chainedHead.includes(".") && !chainedTail.includes("--")) {
-    return chainedHead;
-  }
-  // BEM modifier: `.foo--x` → `.foo`.
-  const bem = selector.match(/^(.*?)(--[\w-]+)$/);
-  const bemHead = bem?.[1];
-  if (bemHead) return bemHead;
-  return null;
-}
+// `deriveSelectorChain` / `stripOneLayer` now live in
+// `@metalab/design-sync-core` (imported above) — shared with the addon's
+// scanner so both sides walk the cascade identically.
 
 /**
  * Find the first top-level rule whose selector list contains `target`.
@@ -388,25 +357,8 @@ function varRefRegex(varName: string): RegExp {
   return new RegExp(`var\\(\\s*${escaped}\\s*(?:,[^)]*)?\\)`, "g");
 }
 
-/**
- * "Single value" = walk the string, track parenthesis depth, return
- * false if we see top-level whitespace. Covers all the cases we care
- * about (var(...), hex/rgb, bare ident, number+unit) without enumerating
- * CSS value grammars. Ported verbatim from the legacy engine — it was
- * the one piece of regex code that was already AST-shaped in spirit.
- */
-export function isSingleValue(value: string): boolean {
-  const trimmed = value.trim();
-  if (!trimmed) return false;
-  let depth = 0;
-  for (let k = 0; k < trimmed.length; k++) {
-    const ch = trimmed.charAt(k);
-    if (ch === "(") depth++;
-    else if (ch === ")") depth = Math.max(0, depth - 1);
-    else if (depth === 0 && /\s/.test(ch)) return false;
-  }
-  return true;
-}
+// `isSingleValue` now lives in `@metalab/design-sync-core` (imported
+// above) — the value-shape guard shared with the addon.
 
 /**
  * Known longhand → shorthand fallbacks. Matches what the legacy engine
@@ -434,15 +386,8 @@ function shorthandFor(longhand: string): string | null {
   return null;
 }
 
-/**
- * Conventional Figma-token-name → CSS custom property mapping.
- * `radius/xl` → `--radius-xl`. Lowercased; `/` and uppercase consumers
- * have been edge cases. Duplicated in the addon's normalizer (P1.3
- * consolidates).
- */
-function tokenNameToCssVar(token: string): string {
-  return "--" + token.replace(/\//g, "-").toLowerCase();
-}
+// `tokenNameToCssVar` now lives in `@metalab/design-sync-core` (imported
+// above) — shared with the addon's normalizer.
 
 // ─── result-shape helpers ───────────────────────────────────────────────
 
