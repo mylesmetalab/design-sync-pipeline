@@ -1,6 +1,6 @@
 {
   "name": "@metalab/design-sync-pipeline",
-  "version": "0.0.8",
+  "version": "0.0.9",
   "description": "Local orchestration service that receives Edit events from front-door tools (Storybook addons, Figma plugins) and routes them to write-capable engines.",
   "license": "MIT",
   "type": "module",
