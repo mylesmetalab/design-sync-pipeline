@@ -422,6 +422,14 @@ function noOp(id: string, message: string): EditResult {
  * scoped rewriter found nothing — see the call site in `apply()` for
  * the rationale on why this is safe.
  *
+ * Scope: this targets token refs living in module-level lookup tables /
+ * object literals (e.g. `ROW_BG_DEFAULT_HOVER: { Hover: "var(--x)" }`) that
+ * a component reads dynamically. It deliberately SKIPS string literals that
+ * are JSX attribute values — a `data-tokens="var(--x)"` (or any non-style
+ * attribute) is not a token binding and must not be rewritten. Inline
+ * `style={{}}` bindings are already handled by the scoped pass before this
+ * fallback runs.
+ *
  * Caveats:
  *   - Only exact-match string literals. Composite values like
  *     `"1px solid var(--x)"` are not rewritten here (would need a
@@ -444,6 +452,10 @@ function rewriteOrphanVarString(input: {
   for (const lit of source.getDescendantsOfKind(SyntaxKind.StringLiteral)) {
     const unquoted = unquoteStringLiteral(lit.getText());
     if (unquoted !== oldExpected) continue;
+    // Never rewrite a JSX attribute value (e.g. `data-tokens="var(--x)"`).
+    // Inline-style bindings are handled by the scoped pass; every other
+    // attribute is not a token binding.
+    if (lit.getFirstAncestorByKind(SyntaxKind.JsxAttribute)) continue;
     const quote = lit.getText()[0];
     lit.replaceWithText(`${quote}${newValue}${quote}`);
     before.push(oldExpected);
