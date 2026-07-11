@@ -153,7 +153,41 @@ export function createTsxInlineEngine(
         }
       }
 
-      const totalCount = replacements.reduce((acc, r) => acc + r.count, 0);
+      let totalCount = replacements.reduce((acc, r) => acc + r.count, 0);
+
+      // Fallback for token-binding edits: when the JSX-scoped pass found
+      // nothing, the literal `var(--token)` reference often lives outside
+      // a `style={{}}` expression — e.g., a lookup table in a sibling
+      // module (`row-shared.ts`'s `ROW_BG_DEFAULT_HOVER: { Hover:
+      // "var(--row-bg-hover)" }`) that the component reads dynamically.
+      // We can still rewrite the binding by treating it as a pure
+      // string-literal swap: find every `"var(--<old>)"` substring across
+      // the same target files and replace with `"var(--<new>)"`. This is
+      // safe because (a) we only fire when the scoped path was empty,
+      // (b) only token-binding edits touch this path (not raw-literal
+      // token-value rewrites), and (c) `var(--x)` strings in a tracked
+      // file are unambiguously design-token references.
+      if (totalCount === 0 && edit.kind === "token-binding" && oldVar && newVar !== oldVar) {
+        for (const target of tsxTargets) {
+          const absPath = resolve(cwd, target.path);
+          const source = project.getSourceFile(absPath);
+          if (!source) continue;
+          const result = rewriteOrphanVarString({
+            source,
+            oldVar,
+            newVar: newVar,
+          });
+          if (result.count > 0) {
+            replacements.push({
+              file: target.path,
+              count: result.count,
+              before: result.before,
+              after: result.after,
+            });
+          }
+        }
+        totalCount = replacements.reduce((acc, r) => acc + r.count, 0);
+      }
 
       if (totalCount === 0) {
         if (staleObserved.length > 0) {
@@ -166,7 +200,7 @@ export function createTsxInlineEngine(
         }
         return reject(
           edit.id,
-          `No inline-style declaration for ${targetProperty} matching ${oldValueExpectation} in any configured TSX target.`,
+          `No inline-style declaration for ${targetProperty} matching ${oldValueExpectation} in any configured TSX target. Also tried a string-literal fallback (matching "${oldValueExpectation}" anywhere in the file) — still nothing.`,
         );
       }
 
@@ -380,4 +414,41 @@ function reject(id: string, message: string): EditResult {
 
 function noOp(id: string, message: string): EditResult {
   return { id, status: "no_op", engine: ENGINE_NAME, message };
+}
+
+/**
+ * Find every string literal whose unquoted value equals `var(<oldVar>)`
+ * and replace with `var(<newVar>)`. Used as a fallback when the JSX-
+ * scoped rewriter found nothing — see the call site in `apply()` for
+ * the rationale on why this is safe.
+ *
+ * Caveats:
+ *   - Only exact-match string literals. Composite values like
+ *     `"1px solid var(--x)"` are not rewritten here (would need a
+ *     different shape and the engines don't currently support partial-
+ *     value swaps anyway).
+ *   - Template strings and StringLiteral types only; numeric / boolean
+ *     / object initializers are untouched.
+ */
+function rewriteOrphanVarString(input: {
+  source: SourceFile;
+  oldVar: string;
+  newVar: string;
+}): { count: number; before: string[]; after: string[] } {
+  const { source, oldVar, newVar } = input;
+  const oldExpected = `var(${oldVar})`;
+  const newValue = `var(${newVar})`;
+  let count = 0;
+  const before: string[] = [];
+  const after: string[] = [];
+  for (const lit of source.getDescendantsOfKind(SyntaxKind.StringLiteral)) {
+    const unquoted = unquoteStringLiteral(lit.getText());
+    if (unquoted !== oldExpected) continue;
+    const quote = lit.getText()[0];
+    lit.replaceWithText(`${quote}${newValue}${quote}`);
+    before.push(oldExpected);
+    after.push(newValue);
+    count++;
+  }
+  return { count, before, after };
 }
