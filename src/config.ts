@@ -21,10 +21,30 @@ export interface CodeTarget {
   scopeSelector?: string;
 }
 
+/**
+ * Default CORS allowlist: common local Storybook / dev-server origins.
+ * The pipeline echoes the request Origin only when it appears here (or in
+ * an explicitly configured `cors` value). `"*"` is honored when configured
+ * explicitly, with a startup warning — never as a default.
+ */
+export const DEFAULT_CORS_ALLOWLIST = [
+  "http://localhost:6006",
+  "http://127.0.0.1:6006",
+  "http://localhost:6007",
+  "http://127.0.0.1:6007",
+  "http://localhost:5173",
+  "http://127.0.0.1:5173",
+  "http://localhost:3000",
+  "http://127.0.0.1:3000",
+];
+
 export interface PipelineConfig {
   /** Port to serve on. Default 7099. */
   port: number;
-  /** Allowed origin(s) for CORS. Default `*` (localhost dev). */
+  /**
+   * Allowed origin(s) for CORS — comma-separated list, or `"*"`.
+   * Default: the localhost allowlist in `DEFAULT_CORS_ALLOWLIST`.
+   */
   cors: string;
   /** Whether to allow writes. When false, every edit is forced to dryRun. */
   writeEnabled: boolean;
@@ -56,7 +76,7 @@ export interface PipelineConfig {
 
 const DEFAULTS: PipelineConfig = {
   port: 7099,
-  cors: "*",
+  cors: DEFAULT_CORS_ALLOWLIST.join(","),
   // Read-only by default — matches the stated principle in the README and
   // ARCHITECTURE.md. First-touch installs get a safe pipeline that returns
   // diffs without writing; producers must opt in via

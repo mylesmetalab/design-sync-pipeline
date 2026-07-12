@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { loadConfig } from "./config.js";
+import { parseServeFlags } from "./cli-args.js";
 import { startServer } from "./server.js";
 import { defaultSeedOptions, parseSeedFlags, seedRegistry } from "./seed.js";
 import {
@@ -42,13 +43,15 @@ if (command !== "serve") {
   process.exit(1);
 }
 
-const portFlag = args.indexOf("--port");
-const portOverride = portFlag !== -1 ? Number(args[portFlag + 1]) : undefined;
-const readOnly = args.includes("--read-only");
+const parsed = parseServeFlags(args.slice(1));
+if (!parsed.ok) {
+  console.error(parsed.error);
+  process.exit(1);
+}
 
 const config = await loadConfig();
-if (portOverride && Number.isFinite(portOverride)) config.port = portOverride;
-if (readOnly) config.writeEnabled = false;
+if (parsed.flags.port !== undefined) config.port = parsed.flags.port;
+if (parsed.flags.readOnly) config.writeEnabled = false;
 
 const handle = await startServer(process.cwd(), config);
 
