@@ -61,6 +61,8 @@ export async function startServer(
         // for token-value edits). If no engine handles it, fall through to
         // the queue (which the figma-plugin worker drains for token-binding
         // writes that require Plugin API access).
+        // eslint-disable-next-line no-console
+        console.log(`[pipeline] edit received: kind=${edit.kind} scope=${edit.scope} property=${edit.target.property} oldValue=${JSON.stringify(edit.oldValue)} newValue=${JSON.stringify(edit.newValue)}`);
         const engineResult = await applyEdit(engines, edit, config.writeEnabled);
         if (engineResult.status !== "rejected" || engineResult.message?.startsWith("No engine handles") !== true) {
           sendJson(res, 200, engineResult);

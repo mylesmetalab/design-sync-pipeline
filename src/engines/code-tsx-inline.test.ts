@@ -182,6 +182,27 @@ describe("createTsxInlineEngine — token-binding swap", () => {
     expect(after).toContain("data-tokens=\"var(--label-text)\"");
   });
 
+  it("string-literal fallback rewrites a module lookup table but not JSX attributes", async () => {
+    // The scoped pass finds nothing (empty style), so the orphan-string
+    // fallback fires: it rewrites the var() in the ROW_BG lookup table
+    // (a plain object literal) but must leave the data-tokens attribute
+    // alone — that's not a token binding.
+    await setup({
+      "Row.tsx": `
+        const ROW_BG = { Hover: "var(--label-text)" };
+        export function Row() {
+          return <div data-tokens="var(--label-text)" style={{}}>{ROW_BG.Hover}</div>;
+        }
+      `,
+    });
+    const engine = createTsxInlineEngine(dir, [{ path: "Row.tsx" }]);
+    const result = await engine.apply(bindingEdit());
+    expect(result.status).toBe("applied");
+    const after = await readFile(join(dir, "Row.tsx"), "utf8");
+    expect(after).toContain('Hover: "var(--button-text)"');
+    expect(after).toContain('data-tokens="var(--label-text)"');
+  });
+
   it("follows an identifier reference to a const declaration", async () => {
     await setup({
       "Row.tsx": `

@@ -2,6 +2,7 @@ import type { PipelineEngine, Edit, EditResult } from "../types.js";
 import type { PipelineConfig } from "../config.js";
 import { createCssPostcssEngine } from "./code-css-postcss.js";
 import { createTsxInlineEngine } from "./code-tsx-inline.js";
+import { createTsxTextEngine } from "./code-tsx-text.js";
 import { createFigmaRestWriteEngine } from "./figma-rest-write.js";
 
 /**
@@ -20,6 +21,7 @@ import { createFigmaRestWriteEngine } from "./figma-rest-write.js";
 export function buildEngines(cwd: string, config: PipelineConfig): PipelineEngine[] {
   return [
     createTsxInlineEngine(cwd, config.codeTargets),
+    createTsxTextEngine(cwd, config.codeTargets),
     createCssPostcssEngine(cwd, config.codeTargets),
     createFigmaRestWriteEngine({ pat: process.env.FIGMA_PAT }),
   ];
