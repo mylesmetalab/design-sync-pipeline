@@ -1,4 +1,5 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import type { AddressInfo } from "node:net";
 import { applyEdit, buildEngines } from "./engines/index.js";
 import type { PipelineConfig } from "./config.js";
 import type { Edit, EditResult } from "./types.js";
@@ -7,6 +8,20 @@ import { EditQueue } from "./queue.js";
 export interface ServerHandle {
   close: () => Promise<void>;
   port: number;
+}
+
+/**
+ * Maximum accepted request-body size. Edits are small JSON documents; a
+ * megabyte is orders of magnitude more than any legitimate payload.
+ * Anything larger is destroyed mid-stream and answered with 413.
+ */
+export const MAX_BODY_BYTES = 1024 * 1024;
+
+class PayloadTooLargeError extends Error {
+  constructor() {
+    super(`Request body exceeds the ${MAX_BODY_BYTES}-byte limit.`);
+    this.name = "PayloadTooLargeError";
+  }
 }
 
 /**
@@ -26,9 +41,16 @@ export async function startServer(
 ): Promise<ServerHandle> {
   const engines = buildEngines(cwd, config);
   const queue = new EditQueue();
+  const allowedOrigins = parseCorsList(config.cors);
+  if (allowedOrigins.includes("*")) {
+    // eslint-disable-next-line no-console
+    console.warn(
+      "[pipeline] cors is configured as \"*\" — any web page can talk to this pipeline. Prefer an explicit origin allowlist.",
+    );
+  }
 
   const server = createServer(async (req, res) => {
-    setCors(res, config.cors);
+    setCors(req, res, allowedOrigins);
     if (req.method === "OPTIONS") {
       res.statusCode = 204;
       res.end();
@@ -65,15 +87,18 @@ export async function startServer(
         console.log(`[pipeline] edit received: kind=${edit.kind} scope=${edit.scope} property=${edit.target.property} oldValue=${JSON.stringify(edit.oldValue)} newValue=${JSON.stringify(edit.newValue)}`);
         const engineResult = await applyEdit(engines, edit, config.writeEnabled);
         if (engineResult.status !== "rejected" || engineResult.message?.startsWith("No engine handles") !== true) {
+          logOutcome(engineResult);
           sendJson(res, 200, engineResult);
           return;
         }
         if (edit.scope === "figma") {
           queue.enqueue(edit);
           const result = await queue.awaitResult(edit.id);
+          logOutcome(result);
           sendJson(res, 200, result);
           return;
         }
+        logOutcome(engineResult);
         sendJson(res, 200, engineResult);
         return;
       }
@@ -87,6 +112,13 @@ export async function startServer(
       const resultMatch = req.url?.match(/^\/edits\/([^/]+)\/result$/);
       if (req.method === "POST" && resultMatch) {
         const id = decodeURIComponent(resultMatch[1]!);
+        // Validate the id BEFORE parsing the body — unknown ids get a 404
+        // without the server buffering or JSON-parsing anything.
+        if (!queue.getStatus(id)) {
+          req.resume();
+          sendJson(res, 404, { error: `No edit with id ${id}` });
+          return;
+        }
         const body = await readBody(req);
         const result = parseEditResult(body);
         if (!result) {
@@ -115,6 +147,11 @@ export async function startServer(
 
       sendJson(res, 404, { error: `Not found: ${req.method} ${req.url}` });
     } catch (err: unknown) {
+      if (err instanceof PayloadTooLargeError) {
+        sendJson(res, 413, { error: err.message });
+        res.once("finish", () => req.destroy());
+        return;
+      }
       const message = err instanceof Error ? err.message : String(err);
       sendJson(res, 500, { error: message });
     }
@@ -124,8 +161,11 @@ export async function startServer(
     server.listen(config.port, "127.0.0.1", resolve);
   });
 
+  // config.port may be 0 (ephemeral) — report the port actually bound.
+  const boundPort = (server.address() as AddressInfo).port;
+
   return {
-    port: config.port,
+    port: boundPort,
     close: () =>
       new Promise<void>((resolve, reject) => {
         server.close((err) => (err ? reject(err) : resolve()));
@@ -133,10 +173,42 @@ export async function startServer(
   };
 }
 
-function setCors(res: ServerResponse, origin: string): void {
-  res.setHeader("Access-Control-Allow-Origin", origin);
+function parseCorsList(cors: string): string[] {
+  return cors
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+/**
+ * CORS: echo the request Origin only when it appears in the allowlist.
+ * `"*"` (explicit config only — never a default) allows everything.
+ * Disallowed origins get no Access-Control-Allow-Origin header at all,
+ * so the browser blocks the cross-origin read.
+ */
+function setCors(req: IncomingMessage, res: ServerResponse, allowedOrigins: string[]): void {
+  const origin = req.headers.origin;
+  if (allowedOrigins.includes("*")) {
+    res.setHeader("Access-Control-Allow-Origin", "*");
+  } else if (origin && allowedOrigins.includes(origin)) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+    res.setHeader("Vary", "Origin");
+  }
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+}
+
+function logOutcome(result: EditResult): void {
+  // eslint-disable-next-line no-console
+  console.log(
+    `[pipeline] edit result: id=${result.id} status=${result.status} engine=${result.engine ?? "-"}`,
+  );
+  if (result.status === "rejected" || result.status === "error") {
+    // eslint-disable-next-line no-console
+    console.warn(
+      `[pipeline] edit ${result.status}: id=${result.id} engine=${result.engine ?? "-"} message=${result.message ?? "-"}`,
+    );
+  }
 }
 
 function sendJson(res: ServerResponse, status: number, body: unknown): void {
@@ -148,7 +220,15 @@ function sendJson(res: ServerResponse, status: number, body: unknown): void {
 function readBody(req: IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
-    req.on("data", (chunk) => chunks.push(chunk));
+    let received = 0;
+    req.on("data", (chunk: Buffer) => {
+      received += chunk.length;
+      if (received > MAX_BODY_BYTES) {
+        reject(new PayloadTooLargeError());
+        return;
+      }
+      chunks.push(chunk);
+    });
     req.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
     req.on("error", reject);
   });

@@ -124,12 +124,23 @@ export function createFigmaRestWriteEngine(ctx: FigmaRestWriteContext): Pipeline
       }
 
       // Pick the mode. Edit may carry one explicitly via modes.{light,dark};
-      // otherwise default to the collection's default mode.
+      // otherwise default to the collection's default mode. A named mode
+      // that doesn't exist in the collection is a hard rejection — silently
+      // writing the default mode instead would corrupt the wrong theme.
       let targetMode = collection.modes.find((m) => m.modeId === collection.defaultModeId)!;
       const modeOverride = edit.modes?.light ? "light" : edit.modes?.dark ? "dark" : null;
       if (modeOverride) {
         const found = collection.modes.find((m) => m.name.toLowerCase() === modeOverride);
-        if (found) targetMode = found;
+        if (!found) {
+          const available = collection.modes.map((m) => m.name).join(", ");
+          return {
+            id: edit.id,
+            status: "rejected",
+            engine: ENGINE_NAME,
+            message: `Mode "${modeOverride}" not found in collection "${collection.name}". Available modes: ${available}.`,
+          };
+        }
+        targetMode = found;
       }
 
       // Parse the desired value from the edit. For numeric variables we
@@ -243,14 +254,28 @@ function parseValueForVariable(
   return null;
 }
 
-function parseColor(raw: string): { r: number; g: number; b: number; a?: number } | null {
+/**
+ * Exported for unit tests. Bounds are enforced: RGB components must be
+ * 0–255 and alpha 0–1 — out-of-range input returns null, which the
+ * engine surfaces as a rejection instead of writing a garbage color.
+ */
+export function parseColor(raw: string): { r: number; g: number; b: number; a?: number } | null {
   const rgbMatch = /rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*(?:,\s*([\d.]+)\s*)?\)/.exec(raw);
   if (rgbMatch) {
+    const r = Number(rgbMatch[1]);
+    const g = Number(rgbMatch[2]);
+    const b = Number(rgbMatch[3]);
+    if (r > 255 || g > 255 || b > 255) return null;
+    let a: number | undefined;
+    if (rgbMatch[4] !== undefined) {
+      a = Number(rgbMatch[4]);
+      if (!Number.isFinite(a) || a < 0 || a > 1) return null;
+    }
     return {
-      r: Number(rgbMatch[1]) / 255,
-      g: Number(rgbMatch[2]) / 255,
-      b: Number(rgbMatch[3]) / 255,
-      ...(rgbMatch[4] ? { a: Number(rgbMatch[4]) } : {}),
+      r: r / 255,
+      g: g / 255,
+      b: b / 255,
+      ...(a !== undefined ? { a } : {}),
     };
   }
   const hexMatch = /^#([0-9a-f]{6})$/i.exec(raw.trim());

@@ -58,7 +58,9 @@ export class EditQueue {
 
   /**
    * Long-poll up to `timeoutMs` for a terminal status on `id`.
-   * Returns the final result, or a `needs_review` placeholder on timeout.
+   * Returns the final result. On timeout the edit is marked (and persisted)
+   * as `error` so callers — and later GET /edits/:id polls — can distinguish
+   * "the worker hung" from "still in flight".
    */
   async awaitResult(id: string, timeoutMs = 30_000, pollMs = 200): Promise<EditResult> {
     const start = Date.now();
@@ -67,12 +69,14 @@ export class EditQueue {
       if (current && isTerminal(current.status)) return current;
       await sleep(pollMs);
     }
-    return {
+    const timedOut: EditResult = {
       id,
-      status: "needs_review",
+      status: "error",
       engine: "queue",
-      message: `Worker did not report within ${timeoutMs}ms — left in flight.`,
+      message: `Worker did not report a result within ${timeoutMs}ms. The edit may still be in flight in the Figma plugin; retry once the worker is responsive.`,
     };
+    this.status.set(id, timedOut);
+    return timedOut;
   }
 }
 
